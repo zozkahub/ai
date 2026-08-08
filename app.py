@@ -9,21 +9,20 @@ AI_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 MODEL_NAME = "openrouter/free"
 
-# تعليمات مقفولة بالضبة والمفتاح
-SYSTEM_PROMPT = """أنت مساعد آلي ذكي تعمل نيابة عن صاحب الحساب (@p_r_o_m).
-قواعد صارمة جداً إياك مخالفتها:
-1. **ممنوع التفكير بصوت عالٍ**: أرسل الرد النهائي للعميل مباشرة. ممنوع كتابة أي خطوات تحليل، أو تفكير (Thinking process)، أو ملاحظات داخلية في رسالتك.
-2. **التطابق اللغوي**: رد بنفس لغة العميل وأسلوبه (عامية مصرية خفيفة إذا تحدث بها، أو إنجليزية، إلخ).
-3. **هويتك**: وضح بلطافة في سياق الكلام أنك "مساعد آلي".
-4. **الحدود**: إذا طلب المستخدم أسعار، شغل، أو ملفات، اعتذر بلطف وأخبره أن ينتظر عودة @p_r_o_m لأنه الوحيد المختص بذلك.
-5. **التوقيع**: ضع هذا التوقيع في سطر مستقل أسفل الرد (انسخه كما هو بالضبط):
-_🤖 مساعد آلي_"""
+# التعليمات بقت أبسط وأعنف عشان ميتشتتش
+SYSTEM_PROMPT = """أنت مساعد آلي ذكي لـ @p_r_o_m.
+قواعد صارمة (تنفيذ إجباري):
+1. الرد يجب أن يكون قصيراً جداً (سطر واحد أو سطرين كحد أقصى).
+2. تحدث بنفس لغة وأسلوب العميل (مثلاً: عامية مصرية إذا تحدث بها).
+3. إذا طلب أسعار، شغل، أو ملفات، اعتذر وأخبره أن ينتظر @p_r_o_m.
+4. ممنوع التحدث مع نفسك أو تحليل المحادثة. أعطني الرد النهائي الموجه للعميل فوراً.
+5. لا تقم بكتابة أي توقيع في النهاية، النظام سيضيفه تلقائياً."""
 
 app = Flask(__name__)
 
 chat_histories = {}
 owner_active_sessions = {}
-OWNER_PAUSE_DURATION = 300  # 5 دقائق صمت لو أنت اتكلمت
+OWNER_PAUSE_DURATION = 300 
 
 def send_typing_action(chat_id, business_conn_id):
     try:
@@ -68,8 +67,8 @@ def get_ai_reply(chat_id, user_text):
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
-        "temperature": 0.7,
-        "max_tokens": 400
+        "temperature": 0.5, # تقليل الإبداع عشان ميألفش
+        "max_tokens": 150   # إجباره على عدم الإطالة
     }
     
     try:
@@ -80,11 +79,24 @@ def get_ai_reply(chat_id, user_text):
         if "choices" in res_data and len(res_data["choices"]) > 0:
             bot_reply = res_data["choices"][0]["message"]["content"]
             
-            # --- فلتر تنظيف قوي يمسح أي تفكير داخلي للنموذج ---
-            bot_reply = re.sub(r'<think>.*?</think>', '', bot_reply, flags=re.DOTALL).strip()
+            # 1. تنظيف أي بلوكات تفكير داخلية
+            bot_reply = re.sub(r'<think>.*?</think>', '', bot_reply, flags=re.DOTALL)
             
-            chat_histories[chat_id].append({"role": "assistant", "content": bot_reply})
-            return bot_reply
+            # 2. تنظيف الهلوسة الإنجليزية الشائعة في بداية الرد
+            bot_reply = re.sub(r'^(Okay,|Let me|According to|First,).*?\n', '', bot_reply, flags=re.IGNORECASE|re.DOTALL)
+            
+            # 3. إجبار برمجي (الفلتر الحاسم): لو الرد أكتر من سطرين، نقص الباقي ونرميه!
+            lines = [line.strip() for line in bot_reply.split('\n') if line.strip()]
+            if len(lines) > 2:
+                bot_reply = '\n'.join(lines[:2])
+            else:
+                bot_reply = '\n'.join(lines)
+            
+            # 4. البايثون هو اللي بيلزق التوقيع أوتوماتيك دلوقتي
+            final_reply = f"{bot_reply}\n\n_🤖 مساعد آلي_"
+            
+            chat_histories[chat_id].append({"role": "assistant", "content": final_reply})
+            return final_reply
         return None
     except Exception as e:
         print(f"AI API Error: {e}")
@@ -107,16 +119,12 @@ def webhook():
             chat_id = msg.get("chat", {}).get("id")
             business_conn_id = msg.get("business_connection_id")
             
-            # الحل القاطع لمشكلة "بيرد وأنا موجود":
-            # تليجرام بيبعت is_outgoing = True لو الرسالة مبعوتة من تليفونك أنت
             is_outgoing = msg.get("is_outgoing", False)
             
             if is_outgoing:
-                # أنت اللي بعت رسالة -> نسجل وقتك ونقفل البوت
                 owner_active_sessions[chat_id] = current_time
                 return jsonify({"status": "ignored outgoing, paused bot"}), 200
                 
-            # لو الرسالة من العميل، نتأكد إنك ما اتكلمتش آخر 5 دقايق
             last_active = owner_active_sessions.get(chat_id, 0)
             if current_time - last_active < OWNER_PAUSE_DURATION:
                 return jsonify({"status": "bot paused due to owner activity"}), 200
