@@ -4,13 +4,15 @@ from flask import Flask, request, jsonify
 TELEGRAM_BOT_TOKEN = "8439529866:AAFDeUsR7nokJHiiZcwT2hApUOyPZjLAFBg"
 AI_API_KEY = "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"
 AI_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "google/gemma-4-31b-it:free"
 
-SYSTEM_PROMPT = """أنت مساعد ذكاء اصطناعي تعمل نيابة عن (prom).
+# استخدمنا نموذج مجاني وقوي وحقيقي عشان الـ API ميضربش Error
+MODEL_NAME = "google/gemma-2-9b-it:free"
+
+SYSTEM_PROMPT = """أنت مساعد ذكاء اصطناعي تفاعلي تعمل نيابة عن (@p_r_o_m).
 القواعد والتعليمات الإجبارية للرد:
-1. رد بالعامية المصرية الخفيفة والودية وبأسلوب مختصر وسريع جداً او بنفس لهجة المستخدم.
-2. لا تقم بتكرار كلام المستخدم أو تحويله لفصحى، بل أجب على سؤاله مباشرة بإجابة سطحية وبسيطة.
-3. إذا طلب تفاصيل معقدة أو مواعيد، أبلغه بوجازة أن زياد سيشاهد الرسالة ويزوده بالتفاصيل فور تفرغه.
+1. رد بالعامية المصرية الخفيفة وبأسلوب مختصر وسريع جداً.
+2. لا تقم بتكرار كلام المستخدم، أجب على سؤاله مباشرة بإجابة سطحية وبسيطة.
+3. إذا طلب تفاصيل معقدة، أبلغه بوجازة أن @p_r_o_m سيراجع المحادثة ويرد بنفسه لاحقاً.
 4. شرط إجباري: يجب أن تنهي كل رسالة بهذا النص في سطر مستقل أسفل الرد:
 [🤖 رد آلي بواسطة الذكاء الاصطناعي]"""
 
@@ -55,7 +57,8 @@ def get_ai_reply(chat_id, user_text):
         return bot_reply
     except Exception as e:
         print(f"AI Error: {e}")
-        return "أهلاً بك! رسالتك وصلت، وزياد هيشوفها ويرد عليك في أقرب وقت.\n\n[🤖 رد آلي بواسطة الذكاء الاصطناعي]"
+        # رسالة الاحتياط لو حصل ضغط على السيرفر المجاني
+        return "رسالتك وصلت، و @p_r_o_m هيشوفها ويرد عليك في أقرب وقت.\n\n[🤖 رد آلي بواسطة الذكاء الاصطناعي]"
 
 @app.route("/", methods=["GET"])
 def home():
@@ -70,6 +73,11 @@ def webhook():
 
         if "business_message" in data:
             msg = data["business_message"]
+            
+            # --- هذا هو التعديل الذي يمنع البوت من الرد على رسائلك أنت ---
+            if msg.get("is_outgoing"):
+                return jsonify({"status": "ignored outgoing"}), 200
+                
             chat_id = msg.get("chat", {}).get("id")
             incoming_text = msg.get("text", "")
             business_conn_id = msg.get("business_connection_id")
