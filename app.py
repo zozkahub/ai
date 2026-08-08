@@ -5,16 +5,15 @@ TELEGRAM_BOT_TOKEN = "8439529866:AAFDeUsR7nokJHiiZcwT2hApUOyPZjLAFBg"
 AI_API_KEY = "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"
 AI_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# استخدمنا نموذج مجاني وقوي وحقيقي عشان الـ API ميضربش Error
-MODEL_NAME = "google/gemma-2-9b-it:free"
+MODEL_NAME = "openrouter/free"
 
-SYSTEM_PROMPT = """أنت مساعد ذكاء اصطناعي تفاعلي تعمل نيابة عن (@p_r_o_m).
-القواعد والتعليمات الإجبارية للرد:
-1. رد بالعامية المصرية الخفيفة وبأسلوب مختصر وسريع جداً.
-2. لا تقم بتكرار كلام المستخدم، أجب على سؤاله مباشرة بإجابة سطحية وبسيطة.
-3. إذا طلب تفاصيل معقدة، أبلغه بوجازة أن @p_r_o_m سيراجع المحادثة ويرد بنفسه لاحقاً.
-4. شرط إجباري: يجب أن تنهي كل رسالة بهذا النص في سطر مستقل أسفل الرد:
-[🤖 رد آلي بواسطة الذكاء الاصطناعي]"""
+SYSTEM_PROMPT = """You are an AI assistant acting on behalf of @p_r_o_m.
+Mandatory rules for your responses:
+1. Reply entirely in English. Keep it very brief, casual, and superficial.
+2. Do not repeat the user's words. Answer directly and simply without committing to any decisions.
+3. If the user asks for complex details, dates, or prices, briefly state that @p_r_o_m will check the chat and reply later.
+4. Mandatory rule: You must end EVERY single message with this exact text on a new line at the very bottom:
+[🤖 Automated AI Reply]"""
 
 app = Flask(__name__)
 
@@ -57,8 +56,8 @@ def get_ai_reply(chat_id, user_text):
         return bot_reply
     except Exception as e:
         print(f"AI Error: {e}")
-        # رسالة الاحتياط لو حصل ضغط على السيرفر المجاني
-        return "رسالتك وصلت، و @p_r_o_m هيشوفها ويرد عليك في أقرب وقت.\n\n[🤖 رد آلي بواسطة الذكاء الاصطناعي]"
+        # هنا البوت مش هيرد بأي رسالة احتياطية لو حصل خطأ
+        return None
 
 @app.route("/", methods=["GET"])
 def home():
@@ -74,11 +73,14 @@ def webhook():
         if "business_message" in data:
             msg = data["business_message"]
             
-            # --- هذا هو التعديل الذي يمنع البوت من الرد على رسائلك أنت ---
-            if msg.get("is_outgoing"):
+            sender_id = msg.get("from", {}).get("id")
+            chat_id = msg.get("chat", {}).get("id")
+            
+            # --- سطر الحماية: يتجاهل رسائلك الشخصية نهائياً ---
+            # لو الـ ID بتاع المرسل مختلف عن الـ ID بتاع المحادثة، ده معناه إن صاحب الحساب هو اللي بيكتب
+            if sender_id and chat_id and sender_id != chat_id:
                 return jsonify({"status": "ignored outgoing"}), 200
                 
-            chat_id = msg.get("chat", {}).get("id")
             incoming_text = msg.get("text", "")
             business_conn_id = msg.get("business_connection_id")
             
@@ -86,12 +88,14 @@ def webhook():
                 send_typing_action(chat_id, business_conn_id)
                 reply = get_ai_reply(chat_id, incoming_text)
                 
-                send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                requests.post(send_url, json={
-                    "business_connection_id": business_conn_id,
-                    "chat_id": chat_id,
-                    "text": reply
-                })
+                # لن يرسل الرسالة إلا إذا كان هناك رد ناجح من الذكاء الاصطناعي
+                if reply:
+                    send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                    requests.post(send_url, json={
+                        "business_connection_id": business_conn_id,
+                        "chat_id": chat_id,
+                        "text": reply
+                    })
                 
         return jsonify({"status": "success"}), 200
     except Exception as e:
